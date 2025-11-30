@@ -1,0 +1,15 @@
+//NAME: Maximilian Lai
+//NETID: ml155
+
+To build the program, you should first run the "make clean" command, to remove any files 
+from old attempts to build the executable. Then, you should run the "make build" command,
+to compile all the Java classes and create the "412alloc" executable shell script. Finally,
+you can run "./412alloc" followed by the below command-line arguments (an absolute or relative
+pathname to the input file, and optionally up to one of several "flag" arguments dictating
+the program's behavior) to actually run the program on an input file.
+
+Modes:
+    -h: prints the help message (all required command-line arguments as well as
+        optional flags)
+    -x: scan and parse the input ILOC block; performs renaming on the code in the input block and prints the results to standard out
+    k [filename]: k is the number of registers available to the allocator (3 ≤ k ≤ 64) and [filename] is a Linux pathname to the file containing the input ILOC block. The pathname can be either a relative pathname or an absolute pathname. Scans, parses, and allocates the code in the input ILOC block so that it uses only registers r0 to rk-1 and print the resulting code to standard out.
