@@ -10,7 +10,7 @@ build: $(CLASSES) schedule
 %.class: %.java
 	$(JAVAC) $<
 
-412alloc: 
+schedule: 
 	echo "#!/bin/bash" > schedule
 	echo "$(JAVA) $(MAIN) \"\$$@\"" >> schedule
 	chmod +x schedule

@@ -806,21 +806,18 @@ public class ILOCScheduler {
         // take most recent string filename as the one used
 
         boolean hFlag = false;
-        boolean xFlag = false;
         boolean failFlag = false;
-        int regCnt = -1;
         int maxSR = -1;
         FileReader reader = null;
 
         if (args.length == 0) {
-            System.err.println("ERROR: No command-line flags found.");
+            System.err.println("ERROR: No command-line args found.");
         }
 
         for (String arg : args) {
             if (arg.charAt(0) == '-') {
                 switch (arg.charAt(1)) {
                     case 'h' -> hFlag = true;
-                    case 'x' -> xFlag = true;
                     default -> {
                         // TODO: redo -h flag print statements
                         System.err.println("ERROR: Command line argument '" + arg.charAt(1) + "' not recognized.");
@@ -846,29 +843,7 @@ public class ILOCScheduler {
                     }
                 }
             }
-            else if (Character.isDigit(arg.charAt(0))) {
-                if (regCnt >= 0) {
-                    System.err.println("ERROR: Attempt to set k multiple times.");
-                    return;
-                }
-
-                int total = 0;
-                int digit;
-                char curr;
-
-                for (int i = 0; i < arg.length(); i++) {
-                    curr = arg.charAt(i);
-                    if (Character.isDigit(curr)) {
-                        digit = curr - '0';
-                        total = 10 * total + digit;
-                    }
-                    else {
-                        break;      // encountered non-digit character in argument starting w/ a digit
-                    }
-                }
-                regCnt = total;
-            }
-            else {          // arg is not a command line flag nor a constant, assume it is a file name
+            else {          // assume arg is a file name
                 File file = new File(arg);
 
                 try {
@@ -886,23 +861,8 @@ public class ILOCScheduler {
         tail.next = head;
         tail.prev = head;
 
-        int flagCnt = 0;
         if (hFlag) {
-            flagCnt += 1;
-        }
-        if (xFlag) {
-            flagCnt += 1;
-        }
-        if (regCnt >= 0) {
-            flagCnt += 1;
-        }
-
-        if (flagCnt > 1) {
-            System.err.println("ERROR: Multiple modes specified, please try again with only one mode specified.");
-            return;
-        }
-
-        if (hFlag) {
+            // TODO: fix this h print
             System.out.println("""
                 -h flag invoked.
 
@@ -922,8 +882,8 @@ public class ILOCScheduler {
                         tokens found by the scanner
             """);
         }
-        else if (xFlag) {
-            if (reader == null) {       // TODO: need this for allocation flag too
+        else {
+            if (reader == null) {
                 System.err.println("ERROR: No input filename specified.");
                 return;
             }
@@ -1324,7 +1284,8 @@ public class ILOCScheduler {
             }
 
             int currOperand;
-            int maxLive = 0;
+            int maxLive = -1;
+            int currLive = 0;
             int liveDiff = 0;
             IRNode currNode = tail.prev;
             while (currNode.lineNum >= 0) {          // potential values for opcode: 1 (load), 2 (store), 3 (loadI), 4-8 (arithops), 9 (output), 10 (nop)
@@ -1340,16 +1301,22 @@ public class ILOCScheduler {
                     // System.out.println("Not a store");
                     currOperand = currNode.args[8];
                     // System.out.println("Target register is r" + currOperand + "; srToVR has " + srToVR[currOperand] + " as its VR");
-                    if (srToVR[currOperand] < 0) {          // TODO: corresponds to an unused def, need special behavior? should it contribute to maxlive?
+                    if (srToVR[currOperand] < 0) {          // TODO: corresponds to an unused def, shouldn't contribute to maxLive
                         srToVR[currOperand] = currVR;
+                        currNode.args[9] = srToVR[currOperand];
+                        currNode.args[11] = (int) lastUse[currOperand];
+                        srToVR[currOperand] = -1;
+                        lastUse[currOperand] = Double.POSITIVE_INFINITY;
                         currVR += 1;
                     }
-                    currNode.args[9] = srToVR[currOperand];
-                    currNode.args[11] = (int) lastUse[currOperand];
-                    srToVR[currOperand] = -1;
-                    lastUse[currOperand] = Double.POSITIVE_INFINITY;
-                    liveDiff -= 1;
-                    // System.out.println("Reset srToVR for SR " + currOperand + ", now value is " + srToVR[currOperand]);
+                    else {          // corresponds to a def with a use, reset
+                        currNode.args[9] = srToVR[currOperand];
+                        currNode.args[11] = (int) lastUse[currOperand];
+                        srToVR[currOperand] = -1;
+                        lastUse[currOperand] = Double.POSITIVE_INFINITY;
+                        liveDiff -= 1;
+                        // System.out.println("Reset srToVR for SR " + currOperand + ", now value is " + srToVR[currOperand]);
+                    }
                 }
                 // else if (currNode.opcode == 3) {        // corresponds to loadI, which could be useful for rematerializables
 
@@ -1392,9 +1359,25 @@ public class ILOCScheduler {
                     lastUse[currOperand] = currNode.lineNum;
                 }
 
-                maxLive += liveDiff;
+                currLive += liveDiff;
+                maxLive = Math.max(maxLive, currLive);
                 liveDiff = 0;
                 currNode = currNode.prev;
+            }
+
+            boolean hasUndefinedUse = false;
+
+            for (int i = 0; i <= maxSR; i++) {
+                if (srToVR[i] >= 0) {
+                    // means this register is a use without a definition, need to exit
+                    System.err.println("register r" + i + " used but never defined");
+                    hasUndefinedUse = true;
+                }
+            }
+
+            if (hasUndefinedUse) {
+                System.err.println("At least one undefined use exists, run terminates.");
+                return;
             }
 
             // System.out.println("\n\n\nBIG BREAK!!!\n\n\n");
@@ -1422,21 +1405,6 @@ public class ILOCScheduler {
                     }
                 }
                 currNode = currNode.next;
-            }
-        }
-        else if (regCnt >= 0 || reader != null) {         // allocator mode
-            if (reader == null) {
-                System.err.println("ERROR: No input filename specified.");
-                return;
-            }
-
-            if (regCnt < 0) {
-                System.out.println("Warning: k not set; asumming 32.");
-                regCnt = 32;
-            }
-            else if (regCnt < 3 || regCnt > 64) {
-                System.err.println("ERROR: Specified k is outside of valid range from 3 and 64, inclusive.");
-                return;
             }
         }
     }
